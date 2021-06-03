@@ -53,3 +53,4 @@ dkms.conf
 
 src/mqttserver
 bin/mqttserver
+log/*.log

@@ -143,7 +143,8 @@ bool MQTT::loop()
     if(rc) {
         logger("Error en conexion, intentando reconectar en 10 segundos.");
         sleep(10);
-        mosquitto_reconnect(this->_mq);
+//        mosquitto_reconnect(this->_mq);
+          this->connect();
     }
 
     return true;
@@ -235,21 +236,20 @@ void MQTT::message_callback(struct mosquitto *mosq, const struct mosquitto_messa
 void MQTT::process_message(char* device, char* param, char* value ) 
 {
     using json = nlohmann::json;
+    double angle=0.0, speed=0.0, lat=0.0, lng=0.0;
 
     int tActual = this->_db->getTimestamp(), tInicio, tFinal, tFecha;
     char params[2000];
-
-    /*std::map<std::string, std::string>::iterator item = this->_listaColas.find(device);
-
-    if( item == this->_listaColas.end() ) {
-        logger("Device no encontrado: [%s]\n", device);
-	return;
-    }*/
 
     tInicio = tActual - DIFF_TIMESTAMP;
     tFinal = tActual + DIFF_TIMESTAMP;
     memset(params, 0, sizeof(params));
 
+    if( ! this->_db->getImeiValues( device, &lat, &lng, &angle, &speed) ) {
+        logger("Datos de posicion no encontrado para %s\n", device);
+    }
+
+    
     if( this->_db->obtenerParams( device,params) ) {
         json j;
 
@@ -261,20 +261,13 @@ void MQTT::process_message(char* device, char* param, char* value )
 
         j[param] = value;
 
-/*        printf("Timestamp: %d\n", this->_db->getTimestamp());
-        printf("Device: %s\n", device);
-        printf("IMEI: %s\n", item->second.c_str());
-        printf("Param: %s\n", param);
-        printf("Value: %s\n", value);
-        printf("json: %s\n", j.dump().c_str());*/
-
-        this->_db->actualizarParams( device, j.dump().c_str());
+        this->_db->actualizarParams( device, this->_mqhost, this->_mqport, j.dump().c_str(), lat, lng, angle, speed);
     } else {
         json j = json::parse("{}");
 
         j[param] = value;
 
-        this->_db->insertGsObjects( this->_mqhost, this->_mqport, device, j.dump().c_str());
+        this->_db->insertGsObjects( this->_mqhost, this->_mqport, device, j.dump().c_str(), lat, lng, angle, speed);
     }
 
     tFecha = 0;
@@ -283,19 +276,8 @@ void MQTT::process_message(char* device, char* param, char* value )
 
     j[param] = value;
 
-    this->_db->insertGsObjectHistorico( device, j.dump().c_str());
+    this->_db->insertGsObjectHistorico( device, j.dump().c_str(), lat, lng, angle, speed);
 
-/*    if( this->_db->obtenerParamsHistorico( item->second.c_str(), tInicio, tFinal, &tFecha, params) ) {
-        json j = json::parse(params);
-
-        j[param] = value;
-
-        this->_db->actualizarParamsHistoricos(item->second.c_str(), tFecha, j.dump().c_str());
-    } else {
-
-
-        logger("No se encontro registro en gs_object_data_%s, se descartan los valores.", item->second.c_str());
-    }*/
 }
 
 void MQTT::proc_connect_callback(struct mosquitto *mosq, void *obj, int result)

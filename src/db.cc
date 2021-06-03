@@ -140,7 +140,7 @@ bool DB::obtenerParams(const char* imei, char* param)
     return ret;
 }
 
-bool DB::actualizarParams(const char* imei, const char* param )
+bool DB::actualizarParams(const char* imei, char* server, int port, const char* param, double lat, double lng, double angle, double speed )
 {
     bool ret=false;
     char sql[3100], buffer[3000];
@@ -152,7 +152,9 @@ bool DB::actualizarParams(const char* imei, const char* param )
     mysql_real_escape_string(&this->_mysql, buffer, param, strlen(param));
 
     memset(sql, 0, sizeof(sql));
-    sprintf( sql, "UPDATE gs_objects SET params='%s', dt_server=NOW(), dt_tracker=NOW() WHERE IMEI='%s'", buffer, imei);
+    sprintf( sql, "UPDATE gs_objects SET params='%s', protocol='mqtt', net_protocol='mq', ip='%s', port=%d, "
+                               " dt_server=NOW(), lat=%f, lng=%f, angle=%f, speed=%f, "
+                               " dt_tracker=NOW() WHERE IMEI='%s'", buffer, server, port, lat, lng, angle, speed, imei);
 
     if( mysql_query( &this->_mysql, sql) ) {
         logger("Error actualizando params en gs_objects. Error: %s", mysql_error(&this->_mysql));
@@ -232,7 +234,7 @@ bool DB::actualizarParamsHistoricos(const char* imei, int treg, const char* para
     return true;
 }
 
-bool DB::insertGsObjects(char* server, int port, char* imei, const char* params)
+bool DB::insertGsObjects(char* server, int port, char* imei, const char* params, double lat, double lng, double angle, double speed)
 {
     char sql[5000], buffer[3000];
 
@@ -249,10 +251,10 @@ bool DB::insertGsObjects(char* server, int port, char* imei, const char* params)
                         "object_expire_dt, manager_id, dt_last_stop, dt_last_idle, dt_last_move, name,"
                         "icon, map_arrows, map_icon, tail_color, tail_points, device,sim_number,model,vin,"
                         "plate_number,odometer_type,engine_hours_type,fcr,time_adj, accuracy, dt_chat, odometer, engine_hours) "
-                        "VALUES ( '%s', 'mq', '%s', '%d', NOW(), NOW(), 0, 0, 0, 0, 0, '1', '%s', 'mqtt', 'true', 'false', "
+                        "VALUES ( '%s', 'mq', '%s', '%d', NOW(), NOW(), %f, %f, 0, %f, %f, '1', '%s', 'mqtt', 'true', 'false', "
 			"'0000-00-00', 0, NOW(), '0000-00-00', NOW(), "
 			"'%s', '../img/user.svg', '', 'arrow', '#00FF44', '7', '', '', 'null', '', '', 'gps', 'off', '', '', '', "
-			"'0000-00-00', '0', '0')", imei, server, port, buffer, imei);
+			"'0000-00-00', '0', '0')", imei, server, port, lat, lng, angle, speed, buffer, imei);
 
     if( mysql_query( &this->_mysql, sql) ) {
         logger("Error insertando params en gs_objects. IMEI: %s. Error: %s", imei, mysql_error(&this->_mysql));
@@ -262,7 +264,7 @@ bool DB::insertGsObjects(char* server, int port, char* imei, const char* params)
     return true;
 }
 
-bool DB::insertGsObjectHistorico(char* imei, const char* params)
+bool DB::insertGsObjectHistorico(char* imei, const char* params, double lat, double lng, double angle, double speed)
 {
     char sql[5000], buffer[3000], imeicase[500];
 
@@ -277,7 +279,8 @@ bool DB::insertGsObjectHistorico(char* imei, const char* params)
     mysql_real_escape_string(&this->_mysql, buffer, params, strlen(params));
 
     sprintf( sql, "INSERT INTO gs_object_data_%s(dt_server, dt_tracker, lat, lng, "
-		    "altitude, angle, speed, params) VALUES( NOW(), NOW(), 0, 0, 0, 0, 0, '%s')", imeicase, params);
+		    "altitude, angle, speed, params) VALUES( NOW(), NOW(), %f, %f, 0, %f, %f, '%s')", 
+                                                             imeicase, lat, lng, angle, speed, params);
 
     if( mysql_query( &this->_mysql, sql) ) {
         logger("Error insertando params en gs_object_data_%s. Error: %s", imeicase, mysql_error(&this->_mysql));
@@ -285,4 +288,43 @@ bool DB::insertGsObjectHistorico(char* imei, const char* params)
     }
 
     return true;
+}
+
+bool DB::getImeiValues(char* device, double* lat, double* lon, double* pAngle, double* pSpeed)
+{
+    bool ret=false;
+    char sql[5000];
+    MYSQL_RES *result;
+    MYSQL_ROW row;
+
+    memset(sql, 0, sizeof(sql));
+
+    sprintf( sql, "SELECT o.lat, o.lng, o.angle, o.speed FROM gs_objects o INNER JOIN gs_rel_devices d ON o.imei=d.imei "
+                                                                                             "WHERE d.queue='%s'", device);
+
+    if( mysql_query( &this->_mysql, sql) ) {
+        logger("Error consultando values. Error: %s", mysql_error(&this->_mysql));
+	return false;
+    }
+
+    result = mysql_store_result(&this->_mysql);
+
+    if( ! result ) {
+        logger("Error en store result. Error: %s", mysql_error(&this->_mysql));
+	return false;
+    }
+
+    row = mysql_fetch_row(result);
+
+    if ( row ) {
+        ret=true;
+        *lat=atof(row[0]);
+        *lon=atof(row[1]);
+        *pAngle=atof(row[2]);
+        *pSpeed=atof(row[3]);
+    }
+
+    mysql_free_result(result);
+
+    return ret;
 }
